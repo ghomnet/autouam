@@ -13,19 +13,19 @@ mode="load"
 challenge="1"
 # 是否同时开启验证码质询 设为1即开启
 
-keeptime="300"
+keeptime="30"
 # ≈开盾最小时间，如60 则开盾60秒内负载降低不会关，60秒后关
 
 interval="0.5"
 # 检测间隔时间，默认0.5秒
 
-email="wdnmd@cloudflare.com"
+email="눈_눈"
 # CloudFlare 账号邮箱
 
-api_key="(´இ皿இ｀)"
+api_key="눈_눈"
 # CloudFlare API KEY
 
-zone_id="ಥ_ಥ"
+zone_id="눈_눈"
 # 区域ID 在域名的概述页面获取
 
 default_security_level="high"
@@ -34,8 +34,11 @@ default_security_level="high"
 api_url="https://api.cloudflare.com/client/v4/zones/$zone_id/settings/security_level"
 # API的地址
 
-api_url1="https://api.cloudflare.com/client/v4/zones/$zone_id/firewall/access_rules/rules"
+api_url1="https://api.cloudflare.com/client/v4/zones/$zone_id/firewall/rules"
 # API的地址之二
+
+api_url2="https://api.cloudflare.com/client/v4/zones/$zone_id/filters"
+# API的地址之三
 
 # 安装依赖
 if [ ! $(which jq 2> /dev/null) ]; then
@@ -71,13 +74,18 @@ load=`echo ${SYSTEM_IDLE} ${TOTAL_TIME} | awk '{printf "%.2f", 100-$1/$2*100}'`
 else
 load=$(cat /proc/loadavg | colrm 5)
 check=$(cat /proc/cpuinfo | grep "processor" | wc -l)
-
 fi
 
 if [ ! -f "status.txt" ];then
 echo "" > status.txt
 else
 status=$(cat status.txt)
+fi
+if [ -f "ruleid.txt" ]; then
+ruleid=$(cat ruleid.txt)
+fi
+if [ -f "filterid.txt" ]; then
+filterid=$(cat filterid.txt)
 fi
 now=$(date +%s)
 time=$(date +%s -r status.txt)
@@ -88,8 +96,14 @@ echo "当前$mode负载:$load"
 if [[ $status -eq 1 ]]
 then
 echo "UAM ON!"
+if [ "$challenge" -eq 1 ]; then
+echo "Challenge ON!"
+fi
 else
 echo "UAM OFF!"
+if [ "$challenge" -eq 1 ]; then
+echo "Challenge OFF!"
+fi
 fi
 
 newtime=`expr $now - $time`
@@ -112,26 +126,19 @@ then
         echo -e "\n成功"
     fi
     if [ "$challenge" -eq 1 ]; then
-        rulesid=$(curl -X GET "$api_url1?per_page=1000&mode=challenge&configuration.target=country" \
+        result=$(curl -X DELETE "$api_url1/$ruleid" \
             -H "X-Auth-Email: $email" \
             -H "X-Auth-Key: $api_key" \
             -H "Content-Type: application/json" \
-            --silent \
-        | jq -r '.result[].id')
-        for i in $rulesid
-        do
-            result=$(curl -X DELETE "$api_url1/$i" \
-                -H "X-Auth-Email: $email" \
-                -H "X-Auth-Key: $api_key" \
-                -H "Content-Type: application/json" \
-                --data "{
-                    \"cascade\": \"none\"
-                }" --silent \
-            | jq -r '.success')
-            if [ "$result" = "true" ]; then
-                echo -e "\n删除验证码 成功 ID: $i"
-            fi
-        done
+            --silent)
+        result1=$(curl -X DELETE "$api_url2/$filterid" \
+            -H "X-Auth-Email: $email" \
+            -H "X-Auth-Key: $api_key" \
+            -H "Content-Type: application/json" \
+            --silent)
+        if [ $(echo $result | jq -r '.success') -a $(echo $result1 | jq -r '.success') ]; then
+            echo -e "\n验证码关闭成功"
+        fi
     fi
 
 elif [[ $load <$check ]]
@@ -165,24 +172,51 @@ then
         echo -e "\n成功"
     fi
     if [ "$challenge" -eq 1 ]; then
-        for i in AF AX AL DZ AS AD AO AI AQ AG AR AM AW AU AT AZ BS BH BD BB BY BE BZ BJ BM BT BO BQ BA BW BV BR IO BN BG BF BI KH CM CA CV KY CF TD CL CN CX CC CO KM CG CD CK CR CI HR CU CW CY CZ DK DJ DM DO EC EG SV GQ ER EE ET FK FO FJ FI FR GF PF TF GA GM GE DE GH GI GR GL GD GP GU GT GG GN GW GY HT HM VA HN HK HU IS IN ID IR IQ IE IM IL IT JM JP JE JO KZ KE KI KP KR KW KG LA LV LB LS LR LY LI LT LU MO MK MG MW MY MV ML MT MH MQ MR MU YT MX FM MD MC MN ME MS MA MZ MM NA NR NP NL NC NZ NI NE NG NU NF MP NO OM PK PW PS PA PG PY PE PH PN PL PT PR QA RE RO RU RW BL SH KN LC MF PM VC WS SM ST SA SN RS SC SL SG SX SK SI SB SO ZA GS SS ES LK SD SR SJ SZ SE CH SY TW TJ TZ TH TL TG TK TO TT TN TR TM TC TV UG UA AE GB UM UY UZ VU VE VN VG VI WF EH YE ZM ZW XX T1
-        do
-            result=$(curl -X POST "$api_url1" \
+        while :
+            do
+            result=$(curl -X POST "$api_url2" \
                 -H "X-Auth-Email: $email" \
                 -H "X-Auth-Key: $api_key" \
                 -H "Content-Type: application/json" \
-                --data "{
-                    \"mode\": \"challenge\",
-                    \"configuration\": {
-                        \"target\": \"country\",
-                        \"value\": \"$i\"
-                    }
-                }" --silent \
-            | jq -r '.success')
-            if [ "$result" = "true" ]; then
-            echo -e "\n开启对$i国家的验证码 成功"
+                --data '[{
+                    "expression": "(not cf.client.bot)"
+                }]' --silent)
+            if [ $(echo $result | jq -r '.success') == "true" ]; then
+                filterid=$(echo $result | jq -r '.result[].id')
+            else
+                filterid=$(echo $result | jq -r '.errors[].meta.id')
+                for i in $filterid
+                do
+                result1=$(curl -X DELETE "$api_url2/$i" \
+                    -H "X-Auth-Email: $email" \
+                    -H "X-Auth-Key: $api_key" \
+                    -H "Content-Type: application/json" --silent)
+                done
+                if [ $(echo $result1 | jq -r '.success') ]; then
+                    echo "\n冲突的filter删除成功"
+                fi
+            fi
+            if [ $(echo $result | jq -r '.success') == "true" ]; then
+                break
             fi
         done
+        result=$(curl -X POST "$api_url1" \
+            -H "X-Auth-Email: $email" \
+            -H "X-Auth-Key: $api_key" \
+            -H "Content-Type: application/json" \
+            --data "[{
+                \"action\": \"challenge\",
+                \"filter\": {
+                    \"id\": \"$filterid\",
+                    \"expression\": \"(not cf.client.bot)\"
+                }
+            }]" --silent)
+        if [ $(echo $result | jq -r '.success') == "true" ]; then
+            ruleid=$(echo $result | jq -r '.result[].id')
+            echo "$filterid" > filterid.txt
+            echo "$ruleid" > ruleid.txt
+            echo -e "验证码开启成功，规则id：$ruleid"
+        fi
     fi
 else
 echo 0 > status.txt
